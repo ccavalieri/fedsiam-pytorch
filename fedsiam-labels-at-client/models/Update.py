@@ -31,6 +31,61 @@ from utils.losses import softmax_mse_loss, softmax_kl_loss, symmetric_mse_loss
 from utils.ramps import sigmoid_rampup, linear_rampup, cosine_rampdown, sigmoid_rampup2
 from models.Nets import mnist_add, cifar_add
 
+# Feature Alignment
+class FeatureAlignmentModule:
+    """Feature Alignment Module - inline implementation"""
+    
+    def __init__(self, feature_dim=4096):
+        self.feature_dim = feature_dim
+        self.mentor_feature_stats = None
+    
+    def compute_feature_statistics(self, features):
+        mean = torch.mean(features, dim=0)
+        var = torch.var(features, dim=0) + 1e-8
+        return {'mean': mean, 'var': var}
+    
+    def kl_divergence_loss(self, learner_features, mentor_stats, epsilon=1e-8):
+        if mentor_stats is None:
+            return torch.tensor(0.0, device=learner_features.device)
+        
+        learner_mean = torch.mean(learner_features, dim=0)
+        learner_var = torch.var(learner_features, dim=0) + epsilon
+        
+        mentor_mean = mentor_stats['mean'].to(learner_features.device)
+        mentor_var = mentor_stats['var'].to(learner_features.device)
+        
+        kl_loss = 0.5 * torch.sum(
+            torch.log((learner_var + epsilon) / (mentor_var + epsilon)) +
+            (mentor_var + (mentor_mean - learner_mean)**2) / (learner_var + epsilon) - 1
+        )
+        
+        return kl_loss
+    
+# Knowledge Distillation
+class KnowledgeDistillationModule:
+    """Knowledge Distillation Module - inline implementation"""
+    
+    def __init__(self, temperature=5.0, alpha=0.7):
+        self.temperature = temperature
+        self.alpha = alpha
+    
+    def kd_loss(self, logits_student, logits_teacher, labels=None):
+        # Soft targets from teacher
+        p_teacher = torch.softmax(logits_teacher / self.temperature, dim=1)
+        log_p_student = torch.log_softmax(logits_student / self.temperature, dim=1)
+        
+        # KL divergence (scaled by T^2)
+        loss_kd = F.kl_div(log_p_student, p_teacher, reduction='batchmean') * (self.temperature ** 2)
+        
+        if labels is not None:
+            # Labeled data: combine supervised + KD
+            loss_sup = F.cross_entropy(logits_student, labels)
+            loss_total = self.alpha * loss_sup + (1 - self.alpha) * loss_kd
+            return loss_total, loss_sup, loss_kd
+        else:
+            # Unlabeled data: KD only
+            return loss_kd, None, loss_kd
+
 def update_ema_variables(model, ema_model, alpha, global_step):
     alpha = min(1 - 1 / (global_step + 1), alpha)
     for ema_param, param in zip(ema_model.parameters(), model.parameters()):
@@ -229,6 +284,61 @@ class LocalUpdate(object):
                 loss = class_loss + consistency_loss
                 optimizer.zero_grad()
                 loss.backward()
+
+                # FEATURE ALIGNMENT LOSS
+                if hasattr(self, 'fa_module') and hasattr(self, 'client_id'):
+                    # Extract features from penultimate layer
+                    with torch.no_grad():
+                        if hasattr(net, 'conv_layer'):  # CIFAR network
+                            x = net.conv_layer(input_var)
+                            x = x.view(x.size(0), -1)
+                            # Features after first FC layer (before final classifier)
+                            features = net.fc_layer[1](x)  # After Dropout
+                        else:  # MNIST network
+                            x = F.relu(F.max_pool2d(net.conv1(input_var), 2))
+                            x = F.relu(F.max_pool2d(net.conv2_drop(net.conv2(x)), 2))
+                            x = x.view(-1, x.shape[1]*x.shape[2]*x.shape[3])
+                            features = F.relu(net.fc1(x))  # Features before fc2
+                    
+                    # Update or use mentor stats
+                    if self.client_id == 0:  # Mentor client
+                        # Store mentor feature statistics
+                        self.fa_module.mentor_feature_stats = self.fa_module.compute_feature_statistics(features)
+                    else:  # Learner client
+                        if self.fa_module.mentor_feature_stats is not None:
+                            # Compute FA loss
+                            loss_fa = self.fa_module.kl_divergence_loss(features, self.fa_module.mentor_feature_stats)
+                            # Add to total loss
+                            loss = loss + self.lambda_transfer * loss_fa
+
+                # KNOWLEDGE DISTILLATION LOSS
+                if hasattr(self, 'kd_module') and hasattr(self, 'global_model'):
+                    if self.global_model is not None:
+                        # Get teacher predictions from global model
+                        with torch.no_grad():
+                            teacher_out = self.global_model(input_var)
+                            if isinstance(teacher_out, Variable):
+                                teacher_logits = teacher_out
+                            else:
+                                teacher_logits, _ = teacher_out
+                        
+                        # Get student logits
+                        student_logits = logit1
+                        
+                        # Only apply KD to labeled samples
+                        labeled_mask = target_var.data.ne(-1)
+                        
+                        if labeled_mask.sum() > 0:
+                            # Compute KD loss for labeled samples
+                            kd_loss_val, _, _ = self.kd_module.kd_loss(
+                                student_logits[labeled_mask],
+                                teacher_logits[labeled_mask],
+                                target_var[labeled_mask]
+                            )
+                            
+                            # Add to total loss
+                            loss = loss + self.kd_weight * kd_loss_val
+
                 optimizer.step()
                 if net_ema != None:
                     if iter_glob > args.phi_g:
