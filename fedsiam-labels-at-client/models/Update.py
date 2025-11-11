@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# Python version: 3.6
 
 import torch
 from torch import nn, autograd
@@ -33,7 +30,7 @@ from models.Nets import mnist_add, cifar_add
 
 # Feature Alignment
 class FeatureAlignmentModule:
-    """Feature Alignment Module - inline implementation"""
+    """Feature Alignment Module"""
     
     def __init__(self, feature_dim=4096):
         self.feature_dim = feature_dim
@@ -63,7 +60,7 @@ class FeatureAlignmentModule:
     
 # Knowledge Distillation
 class KnowledgeDistillationModule:
-    """Knowledge Distillation Module - inline implementation"""
+    """Knowledge Distillation Module"""
     
     def __init__(self, temperature=5.0, alpha=0.7):
         self.temperature = temperature

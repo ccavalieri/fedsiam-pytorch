@@ -1,7 +1,4 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# Python version: 3.6
-# FedSiam-D with Feature Alignment - Minimal Adaptation
+# FedSiam-D with Feature Alignment
 
 import numpy as np
 import matplotlib
@@ -12,7 +9,7 @@ import torch
 
 from data.sampling import sample, noniid_ssl
 from utils.options import args_parser
-from models.Update import LocalUpdate
+from models.Update import LocalUpdate, FeatureAlignmentModule
 from models.Nets import CNNMnist, CNNCifar
 from models.Fed import FedAvg
 from models.test import test_img
@@ -24,89 +21,6 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 warnings.filterwarnings('ignore')
 
 
-# ============================================================================
-# ADDED: Feature Alignment Module
-# ============================================================================
-class FeatureAlignmentModule:
-    """
-    Feature Alignment Module for FedSiam
-    
-    Added to existing FedSiam-D without modifying core training logic.
-    This module computes KL divergence between mentor and learner feature distributions.
-    
-    Paper reference: Feature statistics captured per client, aligned across federation.
-    """
-    
-    def __init__(self, feature_dim=4096):
-        self.feature_dim = feature_dim
-        self.mentor_feature_stats = None
-    
-    def compute_feature_statistics(self, features):
-        """
-        Compute mean and variance of feature distribution
-        features: torch tensor [batch_size, feature_dim]
-        returns: dict with 'mean' and 'var'
-        """
-        mean = torch.mean(features, dim=0)
-        var = torch.var(features, dim=0) + 1e-8
-        return {'mean': mean, 'var': var}
-    
-    def kl_divergence_loss(self, learner_features, mentor_stats, epsilon=1e-8):
-        """
-        KL divergence between mentor feature distribution and learner distribution.
-        Assumes Gaussian distributions.
-        """
-        if mentor_stats is None:
-            return torch.tensor(0.0, device=learner_features.device)
-        
-        learner_mean = torch.mean(learner_features, dim=0)
-        learner_var = torch.var(learner_features, dim=0) + epsilon
-        
-        mentor_mean = mentor_stats['mean'].to(learner_features.device)
-        mentor_var = mentor_stats['var'].to(learner_features.device)
-        
-        kl_loss = 0.5 * torch.sum(
-            torch.log((learner_var + epsilon) / (mentor_var + epsilon)) +
-            (mentor_var + (mentor_mean - learner_mean)**2) / (learner_var + epsilon) - 1
-        )
-        
-        return kl_loss
-
-
-# ============================================================================
-# Extended LocalUpdate with Feature Alignment
-# ============================================================================
-class LocalUpdate_FA(LocalUpdate):
-    """Extended LocalUpdate with Feature Alignment support"""
-    
-    def __init__(self, *args, client_id=0, fa_module=None, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.client_id = client_id
-        self.fa_module = fa_module
-        self.lambda_transfer = 0.5  # ADDED: transfer learning weight
-    
-    def extract_features(self, net, img):
-        """Extract intermediate features before final classification"""
-        # For CNNCifar, features are from fc_layer[1] (before final linear)
-        # For CNNMnist, features are from fc1 (before fc2)
-        net.eval()
-        with torch.no_grad():
-            if hasattr(net, 'conv_layer'):  # CIFAR
-                x = net.conv_layer(img)
-                x = x.view(x.size(0), -1)
-                features = net.fc_layer[1](x)  # After Dropout, before final linear
-            else:  # MNIST
-                x = torch.relu(torch.max_pool2d(net.conv1(img), 2))
-                x = torch.relu(torch.max_pool2d(net.conv2_drop(net.conv2(x)), 2))
-                x = x.view(-1, x.shape[1]*x.shape[2]*x.shape[3])
-                features = torch.relu(net.fc1(x))  # Features before fc2
-        net.train()
-        return features
-
-
-# ============================================================================
-# Main Training Code (IDENTICAL to original except FA additions)
-# ============================================================================
 if __name__ == '__main__':
     args = args_parser()
     args.device = torch.device('cuda:{}'.format(args.gpu) if torch.cuda.is_available() and args.gpu != -1 else 'cpu')
@@ -114,10 +28,14 @@ if __name__ == '__main__':
     SEED = 1234
     torch.manual_seed(SEED)
     
-    # ADDED: Initialize Feature Alignment Module
-    fa_module = FeatureAlignmentModule(feature_dim=1024)  # 1024 for CIFAR, 50 for MNIST
+    # Initialize FEATURE ALIGNMENT module
+    fa_module = FeatureAlignmentModule(
+        feature_dim=4096 if args.dataset == 'cifar' else 50
+    )
+    lambda_transfer = 0.5
+    mentor_client_id = 0
     
-    # Data loading (IDENTICAL to original)
+    # Data loading
     if args.dataset == 'mnist':
         trans_mnist_ema = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
         dataset_train = datasets.MNIST('../data/mnist/', train=True, download=True, transform=trans_mnist_ema)
@@ -160,7 +78,7 @@ if __name__ == '__main__':
     else:
         dict_users, dict_users_labeled, pseudo_label = sample(dataset_train, args.num_users, args.label_rate, args.iid)
 
-    # Network initialization (IDENTICAL to original)
+    # Network initialization
     if args.dataset == 'cifar':
         net_glob = CNNCifar(args=args).to(args.device)
         net_ema_glob = CNNCifar(args=args).to(args.device)
@@ -178,13 +96,12 @@ if __name__ == '__main__':
 
     w_glob = net_glob.state_dict()
     w_ema_glob = net_ema_glob.state_dict()
-
     w_best = copy.deepcopy(w_glob)
     w_ema_best = copy.deepcopy(w_ema_glob)
     best_loss_valid = 100000000000
     best_ema_loss_valid = 100000000000
 
-    # Training initialization (IDENTICAL to original)
+    # Training initialization
     loss_train = []
     cv_loss, cv_acc = [], []
     val_loss_pre, counter = 0, 0
@@ -197,10 +114,7 @@ if __name__ == '__main__':
     diff_w_old = torch.Tensor([0])
     diff_w_old_dic = []
 
-    # ADDED: Mentor client ID (client 0 is mentor)
-    mentor_client_id = 0
-
-    # Main training loop (MINIMAL modifications)
+    # Main training loop
     for iter in range(args.epochs):
         net_glob.train()
         net_ema_glob.train()
@@ -216,9 +130,11 @@ if __name__ == '__main__':
                                 idxs=dict_users[idx], idxs_labeled=dict_users_labeled[idx], 
                                 pseudo_label=pseudo_label)
             
-            # NOTE: The actual FA integration would happen inside trainc()
-            # For this minimal adaptation, we keep the original trainc() call
-            # and note that FA would be integrated in a production version
+            # Inject FA module to client
+            local.fa_module = fa_module
+            local.client_id = idx
+            local.lambda_transfer = lambda_transfer
+            
             w_dic, w_ema_dic, w_ema ,loss, loss_consistent, diff_w_ema, comu_w, comu_w_ema = local.trainc(
                     net=copy.deepcopy(net_glob).to(args.device),
                     net_ema=copy.deepcopy(net_ema_glob).to(args.device),
@@ -253,14 +169,14 @@ if __name__ == '__main__':
 
         diff_w_old = get_median(diff_w_old_dic, iter, args)
 
-        # FedAvg aggregation (IDENTICAL to original)
+        # FedAvg aggregation
         w_glob = FedAvg(w_locals)
         w_ema_glob = FedAvg(w_ema_locals)
 
         net_glob.load_state_dict(w_glob)
         net_ema_glob.load_state_dict(w_ema_glob)
 
-        # Evaluation (IDENTICAL to original)
+        # Evaluation
         net_glob.eval()
         net_ema_glob.eval()
         acc_valid, loss_valid = test_img(net_glob, dataset_valid, args)
@@ -278,7 +194,7 @@ if __name__ == '__main__':
             .format(iter, loss_avg, acc_valid, acc_ema_valid))
         loss_train.append(loss_avg)
         
-    # Final evaluation (IDENTICAL to original)
+    # Final evaluation
     net_glob.load_state_dict(w_best)
     net_ema_glob.load_state_dict(w_ema_best)
 

@@ -1,7 +1,4 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# Python version: 3.6
-# FedSiam-D with Knowledge Distillation - Minimal Adaptation
+# FedSiam-D with Knowledge Distillation
 
 import numpy as np
 import matplotlib
@@ -9,12 +6,10 @@ matplotlib.use('Agg')
 import copy
 from torchvision import datasets, transforms
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 from data.sampling import sample, noniid_ssl
 from utils.options import args_parser
-from models.Update import LocalUpdate
+from models.Update import LocalUpdate, KnowledgeDistillationModule
 from models.Nets import CNNMnist, CNNCifar
 from models.Fed import FedAvg
 from models.test import test_img
@@ -26,76 +21,6 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 warnings.filterwarnings('ignore')
 
 
-# ============================================================================
-# ADDED: Knowledge Distillation Module
-# ============================================================================
-class KnowledgeDistillationModule:
-    """
-    Knowledge Distillation Module for FedSiam
-    
-    Added to existing FedSiam-D without modifying core training logic.
-    This module computes KL divergence between teacher (mentor) and student (learner) logits.
-    
-    Paper reference: Teacher network (global model) provides soft targets to student networks.
-    """
-    
-    def __init__(self, temperature=5.0, alpha=0.7):
-        """
-        temperature: controls softness of soft targets (typical: 3-10)
-        alpha: weight between supervised and KD loss (typical: 0.7)
-        """
-        self.temperature = temperature
-        self.alpha = alpha
-    
-    def kd_loss(self, logits_student, logits_teacher, labels=None):
-        """
-        Knowledge Distillation loss.
-        
-        Args:
-            logits_student: [batch, num_classes] - student network outputs
-            logits_teacher: [batch, num_classes] - teacher network outputs (detached)
-            labels: [batch] - ground truth labels (optional, for labeled data)
-        
-        Returns:
-            loss: combined loss (supervised + KD or KD only)
-            loss_sup: supervised loss (if labels provided)
-            loss_kd: KD loss
-        """
-        # Soft targets from teacher
-        p_teacher = torch.softmax(logits_teacher / self.temperature, dim=1)
-        log_p_student = torch.log_softmax(logits_student / self.temperature, dim=1)
-        
-        # KL divergence (scaled by T^2)
-        loss_kd = torch.nn.functional.kl_div(
-            log_p_student, p_teacher, reduction='batchmean'
-        ) * (self.temperature ** 2)
-        
-        if labels is not None:
-            # Labeled data: combine supervised + KD
-            loss_sup = torch.nn.functional.cross_entropy(logits_student, labels)
-            loss_total = self.alpha * loss_sup + (1 - self.alpha) * loss_kd
-            return loss_total, loss_sup, loss_kd
-        else:
-            # Unlabeled data: KD only
-            return loss_kd, None, loss_kd
-
-
-# ============================================================================
-# Extended LocalUpdate with Knowledge Distillation
-# ============================================================================
-class LocalUpdate_KD(LocalUpdate):
-    """Extended LocalUpdate with Knowledge Distillation support"""
-    
-    def __init__(self, *args, global_model=None, kd_module=None, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.global_model = global_model
-        self.kd_module = kd_module
-        self.kd_weight = 0.5  # ADDED: KD loss weight
-
-
-# ============================================================================
-# Main Training Code (IDENTICAL to original except KD additions)
-# ============================================================================
 if __name__ == '__main__':
     args = args_parser()
     args.device = torch.device('cuda:{}'.format(args.gpu) if torch.cuda.is_available() and args.gpu != -1 else 'cpu')
@@ -103,10 +28,14 @@ if __name__ == '__main__':
     SEED = 1234
     torch.manual_seed(SEED)
     
-    # ADDED: Initialize Knowledge Distillation Module
-    kd_module = KnowledgeDistillationModule(temperature=5.0, alpha=0.7)
+    # Initialize KNOWLEDGE DISTILLATION module
+    kd_module = KnowledgeDistillationModule(
+        temperature=5.0,
+        alpha=0.7
+    )
+    kd_weight = 0.5
     
-    # Data loading (IDENTICAL to original)
+    # Data loading
     if args.dataset == 'mnist':
         trans_mnist_ema = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
         dataset_train = datasets.MNIST('../data/mnist/', train=True, download=True, transform=trans_mnist_ema)
@@ -149,7 +78,7 @@ if __name__ == '__main__':
     else:
         dict_users, dict_users_labeled, pseudo_label = sample(dataset_train, args.num_users, args.label_rate, args.iid)
 
-    # Network initialization (IDENTICAL to original)
+    # Network initialization 
     if args.dataset == 'cifar':
         net_glob = CNNCifar(args=args).to(args.device)
         net_ema_glob = CNNCifar(args=args).to(args.device)
@@ -167,13 +96,12 @@ if __name__ == '__main__':
 
     w_glob = net_glob.state_dict()
     w_ema_glob = net_ema_glob.state_dict()
-
     w_best = copy.deepcopy(w_glob)
     w_ema_best = copy.deepcopy(w_ema_glob)
     best_loss_valid = 100000000000
     best_ema_loss_valid = 100000000000
 
-    # Training initialization (IDENTICAL to original)
+    # Training initialization 
     loss_train = []
     cv_loss, cv_acc = [], []
     val_loss_pre, counter = 0, 0
@@ -186,7 +114,7 @@ if __name__ == '__main__':
     diff_w_old = torch.Tensor([0])
     diff_w_old_dic = []
 
-    # Main training loop (MINIMAL modifications for KD)
+    # Main training loop
     for iter in range(args.epochs):
         net_glob.train()
         net_ema_glob.train()
@@ -202,10 +130,11 @@ if __name__ == '__main__':
                                 idxs=dict_users[idx], idxs_labeled=dict_users_labeled[idx], 
                                 pseudo_label=pseudo_label)
             
-            # NOTE: The actual KD integration would happen inside trainc()
-            # For this minimal adaptation, we keep the original trainc() call
-            # and note that KD would be integrated in a production version
-            # ADDED: Pass global model for knowledge distillation
+            # Inject KD module to client
+            local.kd_module = kd_module
+            local.global_model = copy.deepcopy(net_glob).to(args.device)
+            local.kd_weight = kd_weight
+            
             w_dic, w_ema_dic, w_ema ,loss, loss_consistent, diff_w_ema, comu_w, comu_w_ema = local.trainc(
                     net=copy.deepcopy(net_glob).to(args.device),
                     net_ema=copy.deepcopy(net_ema_glob).to(args.device),
@@ -240,14 +169,14 @@ if __name__ == '__main__':
 
         diff_w_old = get_median(diff_w_old_dic, iter, args)
 
-        # FedAvg aggregation (IDENTICAL to original)
+        # FedAvg aggregation
         w_glob = FedAvg(w_locals)
         w_ema_glob = FedAvg(w_ema_locals)
 
         net_glob.load_state_dict(w_glob)
         net_ema_glob.load_state_dict(w_ema_glob)
 
-        # Evaluation (IDENTICAL to original)
+        # Evaluation
         net_glob.eval()
         net_ema_glob.eval()
         acc_valid, loss_valid = test_img(net_glob, dataset_valid, args)
@@ -265,7 +194,7 @@ if __name__ == '__main__':
             .format(iter, loss_avg, acc_valid, acc_ema_valid))
         loss_train.append(loss_avg)
         
-    # Final evaluation (IDENTICAL to original)
+    # Final evaluation
     net_glob.load_state_dict(w_best)
     net_ema_glob.load_state_dict(w_ema_best)
 
