@@ -133,6 +133,7 @@ if __name__ == '__main__':
             # Inject KD module to client
             local.kd_module = kd_module
             local.global_model = copy.deepcopy(net_glob).to(args.device)
+            local.global_model.eval()  # Set to eval mode for teacher
             local.kd_weight = kd_weight
             
             w_dic, w_ema_dic, w_ema ,loss, loss_consistent, diff_w_ema, comu_w, comu_w_ema = local.trainc(
@@ -164,6 +165,8 @@ if __name__ == '__main__':
             w_ema_locals.append(copy.deepcopy(w_ema))
             loss_locals.append(copy.deepcopy(loss))
             loss_consistent_locals.append(copy.deepcopy(loss_consistent))
+            
+            print(f"[Client {idx}] Training complete. Loss: {loss:.4f}\n")
 
         glob_comu.append(sum(epoch_comu)/len(epoch_comu))
 

@@ -33,7 +33,7 @@ if __name__ == '__main__':
         feature_dim=4096 if args.dataset == 'cifar' else 50
     )
     lambda_transfer = 0.5
-    mentor_client_id = 0
+    mentor_client_id = 0 
     
     # Data loading
     if args.dataset == 'mnist':
@@ -123,8 +123,15 @@ if __name__ == '__main__':
         w_locals, w_ema_locals, loss_locals, loss_consistent_locals = [], [], [], []
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
+        
+        # Ensure mentor is always included
+        if mentor_client_id not in idxs_users:
+            idxs_users[-1] = mentor_client_id
+        
+        # Process mentor first to get feature statistics
+        idxs_users_sorted = sorted(idxs_users, key=lambda x: 0 if x == mentor_client_id else 1)
 
-        for idx in idxs_users:
+        for idx in idxs_users_sorted:
             dict_userepoch[idx] = dict_userepoch[idx]+1
             local = LocalUpdate(args=args, dataset=dataset_train, dataset_ema=dataset_train_ema, 
                                 idxs=dict_users[idx], idxs_labeled=dict_users_labeled[idx], 
