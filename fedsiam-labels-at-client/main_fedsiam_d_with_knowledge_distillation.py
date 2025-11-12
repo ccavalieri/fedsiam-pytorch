@@ -166,7 +166,6 @@ if __name__ == '__main__':
             loss_locals.append(copy.deepcopy(loss))
             loss_consistent_locals.append(copy.deepcopy(loss_consistent))
             
-            print(f"[Client {idx}] Training complete. Loss: {loss:.4f}\n")
 
         glob_comu.append(sum(epoch_comu)/len(epoch_comu))
 
