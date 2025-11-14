@@ -36,8 +36,8 @@ from pathlib import Path
 # Methods to run
 METHODS = {
     'baseline': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d.py',
-    'fa': '/content/fedsiam-pytorch/fedsiam-labels-at-client/train_fedsiam_d_with_feature_alignment.py',
-    'kd': '/content/fedsiam-pytorch/fedsiam-labels-at-client/train_fedsiam_d_with_knowledge_distillation.py'
+    'fa': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d_with_feature_alignment.py',
+    'kd': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d_with_knowledge_distillation.py'
 }
 
 # Datasets
