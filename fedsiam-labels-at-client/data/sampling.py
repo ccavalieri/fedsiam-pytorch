@@ -43,6 +43,12 @@ def sample(dataset, num_users, label_rate, iid_if):
                 label_rate_dict[i] = (105 * label_rate -5) / (100 * label_rate) 
             else:
                 label_rate_dict[i] = 0.05
+    elif iid_if == 'noniid_extreme':
+        for i in range(num_users):
+            if i == 0:
+                label_rate_dict[i] = 1.0  
+            else:
+                label_rate_dict[i] = 0.01 
     else:
         for i in range(num_users):
             label_rate_dict[i] = label_rate
@@ -68,7 +74,7 @@ def get_dict(dict_idxs_class, num_users, iid_if, label_rate, i):
 
     dict_idxs = set()
     dict_idxs_labeled = set()
-    if iid_if == 'iid' or iid_if == 'noniid_ssl':
+    if iid_if == 'iid' or iid_if == 'noniid_ssl' or iid_if == 'noniid_extreme':
         for key in dict_idxs_class.keys():
             idxs_class = dict_idxs_class[key][0 : int( len(dict_idxs_class[key]) / (num_users-i) ) ]
             idxs_class_labeled = idxs_class[0:round(len(idxs_class)*label_rate)]
@@ -94,4 +100,3 @@ def get_dict(dict_idxs_class, num_users, iid_if, label_rate, i):
         dict_idxs_labeled = dict_idxs_labeled | set(idxs_class_labeled)
         dict_idxs_class[y] = list(set(dict_idxs_class[y]) - set(idxs_class))
     return dict_idxs, dict_idxs_labeled, dict_idxs_class
-
