@@ -1,21 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Experiment Runner for FedSiam-D, Feature Alignment, and Knowledge Distillation
+Experiment Runner for FedSiam-D variants including Reptile, FA, and KD
 
 Runs all combinations of:
-- Methods: FedSiam-D (baseline), FA, KD
+- Methods: FedSiam-D (baseline), FA, KD, Reptile, Reptile+FA+KD
 - Datasets: MNIST, CIFAR-10, SVHN
 - Partitions: IID, Non-IID-I, Non-IID-II, Non-IID-III, Non-IID-IV
-
-Usage:
-    python run_experiments.py
-    
-    # Or with custom output:
-    python run_experiments.py --output results.csv
-    
-    # Or run specific experiments only:
-    python run_experiments.py --methods baseline fa --datasets cifar
 """
 
 import subprocess
@@ -33,11 +24,13 @@ from pathlib import Path
 # CONFIGURATION
 # ============================================================================
 
-# Methods to run
+# Methods to run 
 METHODS = {
     'baseline': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d.py',
     'fa': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d_with_feature_alignment.py',
-    'kd': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d_with_knowledge_distillation.py'
+    'kd': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d_with_knowledge_distillation.py',
+    'reptile': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d_with_reptile.py',
+    'reptile_fa_kd': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d_reptile_fa_kd.py'
 }
 
 # Datasets
@@ -296,7 +289,7 @@ def save_results_to_csv(results, output_file='results.csv'):
                 'output_file': result.get('output_file', '')
             })
     
-    print(f"\n✅ Results saved to: {output_file}")
+    print(f"\nResults saved to: {output_file}")
 
 
 def print_summary(results):
@@ -328,7 +321,7 @@ def print_summary(results):
         dataset_results = [r for r in results if r['dataset'] == dataset and r.get('t_test') is not None]
         if dataset_results:
             best = max(dataset_results, key=lambda x: x['t_test'])
-            print(f"{dataset.upper():8s} | Best: {best['t_test']:.2f}% | {best['method']:8s} | {best['partition']}")
+            print(f"{dataset.upper():8s} | Best: {best['t_test']:.2f}% | {best['method']:15s} | {best['partition']}")
     
     print(f"\n{'='*80}\n")
 
@@ -338,7 +331,7 @@ def print_summary(results):
 # ============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description='Run FedSiam-D experiments')
+    parser = argparse.ArgumentParser(description='Run FedSiam-D experiments with new methods')
     parser.add_argument('--output', type=str, default='results.csv',
                        help='Output CSV file (default: results.csv)')
     parser.add_argument('--output_dir', type=str, default='experiment_outputs',
@@ -377,12 +370,7 @@ def main():
     print(f"  Partitions: {', '.join(partitions_to_run)}")
     print(f"\nOutput CSV: {args.output}")
     print(f"Output directory: {args.output_dir}")
-    
-    # Estimate time
-    avg_time_per_exp = 30  # minutes (conservative estimate)
-    estimated_hours = len(experiments) * avg_time_per_exp / 60
-    print(f"\nEstimated total time: {estimated_hours:.1f} hours")
-    print("  (assuming ~30 min per experiment)")
+
     
     # Confirm
     print("\n" + "="*80)
@@ -391,37 +379,25 @@ def main():
         print("Aborted.")
         return
     
-    # Run all experiments
+    # Run experiments
     results = []
-    start_time = time.time()
-    
-    for idx, (method, dataset, partition) in enumerate(experiments, 1):
-        print(f"\n{'#'*80}")
-        print(f"EXPERIMENT {idx}/{len(experiments)}")
-        print(f"{'#'*80}")
+    for i, (method, dataset, partition) in enumerate(experiments, 1):
+        print(f"\n{'='*80}")
+        print(f"EXPERIMENT {i}/{len(experiments)}")
+        print(f"{'='*80}")
         
         result = run_experiment(method, dataset, partition, args.output_dir)
         results.append(result)
         
-        # Save incrementally (so we don't lose data if crash)
+        # Save intermediate results after each experiment
         save_results_to_csv(results, args.output)
-        
-        # Print progress
-        elapsed = time.time() - start_time
-        avg_time = elapsed / idx
-        remaining = avg_time * (len(experiments) - idx)
-        
-        print(f"\nProgress: {idx}/{len(experiments)} ({idx/len(experiments)*100:.1f}%)")
-        print(f"Elapsed: {elapsed/3600:.2f} hours")
-        print(f"Estimated remaining: {remaining/3600:.2f} hours")
     
-    # Final save and summary
-    save_results_to_csv(results, args.output)
+    # Print summary
     print_summary(results)
     
-    print(f"\nAll experiments completed!")
+    print("\nAll experiments completed!")
     print(f"Results saved to: {args.output}")
-    print(f"Logs saved to: {args.output_dir}/")
+    print(f"Logs saved to: {args.output_dir}/\n")
 
 
 if __name__ == '__main__':

@@ -60,13 +60,24 @@ class FeatureAlignmentModule:
     
 # Knowledge Distillation
 class KnowledgeDistillationModule:
-    """Knowledge Distillation Module"""
+    """Knowledge Distillation Module."""
     
     def __init__(self, temperature=5.0, alpha=0.7):
         self.temperature = temperature
         self.alpha = alpha
     
     def kd_loss(self, logits_student, logits_teacher, labels=None):
+        """
+        Compute knowledge distillation loss.
+        
+        Args:
+            logits_student: Student model logits
+            logits_teacher: Teacher model logits  
+            labels: Ground truth labels (None for unlabeled data)
+            
+        Returns:
+            total_loss, supervised_loss, kd_loss
+        """
         # Soft targets from teacher
         p_teacher = torch.softmax(logits_teacher / self.temperature, dim=1)
         log_p_student = torch.log_softmax(logits_student / self.temperature, dim=1)
@@ -75,12 +86,12 @@ class KnowledgeDistillationModule:
         loss_kd = F.kl_div(log_p_student, p_teacher, reduction='batchmean') * (self.temperature ** 2)
         
         if labels is not None:
-            # Labeled data: combine supervised + KD
+            # Labeled data
             loss_sup = F.cross_entropy(logits_student, labels)
             loss_total = self.alpha * loss_sup + (1 - self.alpha) * loss_kd
             return loss_total, loss_sup, loss_kd
         else:
-            # Unlabeled data: KD only
+            # Unlabeled data
             return loss_kd, None, loss_kd
 
 def update_ema_variables(model, ema_model, alpha, global_step):
