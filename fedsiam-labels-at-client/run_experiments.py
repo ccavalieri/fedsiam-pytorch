@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Experiment Runner for FedSiam-D variants including Reptile, FA, and KD
+Experiment Runner for FedSiam-D variants FA and KD
 
 Runs all combinations of:
-- Methods: FedSiam-D (baseline), FA, KD, Reptile, Reptile+FA+KD
+- Methods: FedSiam-D (baseline), FA, KD
 - Datasets: MNIST, CIFAR-10, SVHN
 - Partitions: IID, Non-IID-I, Non-IID-II, Non-IID-III, Non-IID-IV
 """
@@ -28,9 +28,7 @@ from pathlib import Path
 METHODS = {
     'baseline': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d.py',
     'fa': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d_with_feature_alignment.py',
-    'kd': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d_with_knowledge_distillation.py',
-    'reptile': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d_with_reptile.py',
-    'reptile_fa_kd': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d_reptile_fa_kd.py'
+    'kd': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d_with_knowledge_distillation.py'
 }
 
 # Datasets
