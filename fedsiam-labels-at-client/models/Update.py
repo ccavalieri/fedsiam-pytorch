@@ -58,6 +58,7 @@ class FeatureAlignmentModule:
         
         return kl_loss
     
+    
 # Knowledge Distillation
 class KnowledgeDistillationModule:
     """Knowledge Distillation Module."""
@@ -93,6 +94,71 @@ class KnowledgeDistillationModule:
         else:
             # Unlabeled data
             return loss_kd, None, loss_kd
+        
+        
+class PrototypeModule:
+    """Prototype-based Transfer Module."""
+
+    def __init__(self, feature_dim=None, num_classes=10, momentum=0.9):
+        self.feature_dim = feature_dim
+        self.num_classes = num_classes
+        self.momentum = momentum
+
+        self.prototypes = None
+        self.counts = None
+
+    def _init_if_needed(self, features):
+        if self.prototypes is None:
+            d = features.shape[1]
+            device = features.device
+            self.prototypes = torch.zeros(self.num_classes, d, device=device)
+            self.counts = torch.zeros(self.num_classes, device=device)
+
+    @torch.no_grad()
+    def update_prototypes(self, features, labels):
+        if features.numel() == 0:
+            return
+
+        self._init_if_needed(features)
+        device = features.device
+        labels = labels.to(device).long()
+
+        for c in labels.unique():
+            c_int = int(c.item())
+            if c_int < 0 or c_int >= self.num_classes:
+                continue
+            mask = labels == c
+            if mask.sum() == 0:
+                continue
+            feat_c = features[mask].mean(dim=0)
+            if self.counts[c_int] == 0:
+                self.prototypes[c_int] = feat_c
+            else:
+                m = self.momentum
+                self.prototypes[c_int] = (
+                    m * self.prototypes[c_int] + (1.0 - m) * feat_c
+                )
+            self.counts[c_int] += mask.sum()
+
+    def has_prototypes(self):
+        return self.prototypes is not None
+
+    def prototype_alignment_loss(self, features, labels):
+        device = features.device
+        if self.prototypes is None:
+            return torch.tensor(0.0, device=device)
+
+        labels = labels.to(device).long()
+        mask = (labels >= 0) & (labels < self.num_classes)
+        if mask.sum() == 0:
+            return torch.tensor(0.0, device=device)
+
+        feats_sel = features[mask]
+        labels_sel = labels[mask]
+        prot = self.prototypes[labels_sel]
+
+        loss = F.mse_loss(feats_sel, prot)
+        return loss
 
 def update_ema_variables(model, ema_model, alpha, global_step):
     alpha = min(1 - 1 / (global_step + 1), alpha)
