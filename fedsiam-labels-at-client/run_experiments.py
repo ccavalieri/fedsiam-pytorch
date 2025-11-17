@@ -28,7 +28,10 @@ from pathlib import Path
 METHODS = {
     'baseline': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d.py',
     'fa': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d_with_feature_alignment.py',
-    'kd': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d_with_knowledge_distillation.py'
+    'avg': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedavg.py',
+    'fixmatch': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedavg.py',
+    'match': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedavg.py',
+    'sem': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedavg.py'
 }
 
 # Datasets
