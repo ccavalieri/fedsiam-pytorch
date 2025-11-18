@@ -30,7 +30,8 @@ METHODS = {
     'fa': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d_with_feature_alignment.py',
     'kd': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d_with_knowledge_distillation.py',
     'proto': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedsiam_d_with_prototype.py',
-    'avg': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fed_avg.py'
+    'avg': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedavg.py',
+    'mtc': '/content/fedsiam-pytorch/fedsiam-labels-at-client/main_fedmatch.py'
 }
 
 # Datasets

@@ -456,7 +456,7 @@ class LocalUpdate(object):
 class LocalUpdate_fedavg(object):
     def __init__(self, args, dataset=None, pseudo_label=None, idxs=set(), idxs_labeled=set()):
         self.args = args
-        self.loss_func = nn.CrossEntropyLoss()
+        self.loss_func = nn.CrossEntropyLoss(ignore_index=-1)
         self.selected_clients = []
         self.pseudo_label=pseudo_label
 
