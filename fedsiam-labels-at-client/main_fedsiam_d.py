@@ -184,6 +184,7 @@ if __name__ == '__main__':
         net_ema_glob.eval()
         acc_valid, loss_valid = test_img(net_glob, dataset_valid, args)
         acc_ema_valid, loss_ema_valid = test_img(net_ema_glob, dataset_valid, args)
+        acc_train, loss_train_f = test_img(net_glob, dataset_train, args)
         if loss_valid <= best_loss_valid:
             best_loss_valid = loss_valid
             w_best = copy.deepcopy(w_glob)
@@ -193,9 +194,9 @@ if __name__ == '__main__':
 
         loss_avg = sum(loss_locals) / len(loss_locals)
         loss_consistent_avg = sum(loss_consistent_locals) / len(loss_consistent_locals)
-        print('Round {:3d}, loss {:.3f}, acc_valid {:.2f}%, acc_ema_valid {:.2f}%'
-            .format(iter, loss_avg, acc_valid, acc_ema_valid))
-        loss_train.append(loss_avg)
+        print('Round {:3d}, loss {:.3f}, acc_valid {:.2f}%, acc_ema_valid {:.2f}%, acc_train {:.2f}%'
+            .format(iter, loss_avg, acc_valid, acc_ema_valid, acc_train))
+        #loss_train.append(loss_avg)
         
     net_glob.load_state_dict(w_best)
     net_ema_glob.load_state_dict(w_ema_best)

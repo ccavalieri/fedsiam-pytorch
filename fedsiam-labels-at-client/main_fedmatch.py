@@ -166,6 +166,14 @@ if __name__ == '__main__':
     best_w_helper = {}
     best_w_helper[0], best_w_helper[1] = w_glob, w_glob
 
+    users_labeled=set()
+    for i in range(len(dict_users_labeled)) :
+        users_labeled = users_labeled | dict_users_labeled[i]
+    users_unlabeled=set()
+    for i in range(len(dict_users_labeled)) :
+        users_unlabeled = users_unlabeled | (dict_users[i] - dict_users_labeled[i])
+    dataset_train_labeled = DatasetSplit(dataset = dataset_train_weak, idxs = users_labeled, pseudo_label = pseudo_label)
+
     for iter in range(args.epochs):
         net_glob.train()
         net_glob_helper_1.train()
@@ -217,15 +225,16 @@ if __name__ == '__main__':
 
         net_glob.eval()
         acc_valid, loss_valid = test_img(net_glob, dataset_test, args)
+        acc_train, loss_train = test_img(net_glob, dataset_train_labeled, args)
         if loss_valid <= best_loss_valid:
             best_loss_valid = loss_valid
             w_best = copy.deepcopy(w_glob)
 
 
         loss_avg = sum(loss_locals) / len(loss_locals)
-        print('Round {:3d}, Average loss {:.3f}, acc_valid {:.2f}%, best_2_acc ({:.2f}%, {:.2f}%)'
-            .format(iter, loss_avg, acc_valid, best_w_acc[0], best_w_acc[1]))
-        loss_train.append(loss_avg)
+        print('Round {:3d}, Average loss {:.3f}, acc_valid {:.2f}%, acc_train {:.2f}%, best_2_acc ({:.2f}%, {:.2f}%)'
+            .format(iter, loss_avg, acc_valid, acc_train, best_w_acc[0], best_w_acc[1]))
+        #loss_train.append(loss_avg)
 
     print("\n Begin test")
 
