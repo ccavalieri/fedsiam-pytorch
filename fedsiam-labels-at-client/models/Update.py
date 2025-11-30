@@ -355,7 +355,40 @@ class LocalUpdate(object):
                 ema_class_loss = class_criterion(ema_logit, target_var) / minibatch_size
                 consistency_weight = get_current_consistency_weight(user_epoch * args.local_ep + iter + 1 )
                 consistency_loss = consistency_weight * consistency_criterion(cons_logit, ema_logit) / minibatch_size
+
+                # PROTOTYPE MODULE (FedSiam-P)
                 loss = class_loss + consistency_loss
+                if hasattr(self, "prototype_module"):
+                    # Extrai features da penúltima camada 
+                    if hasattr(net, "conv_layer"):  # CIFAR / SVHN network
+                        x_feat = net.conv_layer(input_var)
+                        x_feat = x_feat.view(x_feat.size(0), -1)
+                        # Features após primeira FC (antes do classificador final)
+                        features_proto = net.fc_layer[1](x_feat)  # camada após Dropout
+                    else:  # MNIST network
+                        x_feat = F.relu(F.max_pool2d(net.conv1(input_var), 2))
+                        x_feat = F.relu(F.max_pool2d(net.conv2_drop(net.conv2(x_feat)), 2))
+                        x_feat = x_feat.view(-1, x_feat.shape[1] * x_feat.shape[2] * x_feat.shape[3])
+                        features_proto = F.relu(net.fc1(x_feat))  # features antes de fc2
+
+                    # Atualiza protótipos apenas com exemplos rotulados
+                    labeled_mask = target_var.data.ne(-1)
+                    if labeled_mask.sum() > 0:
+                        with torch.no_grad():
+                            if not hasattr(self, "client_id") or self.client_id == 0:
+                                self.prototype_module.update_prototypes(
+                                    features_proto[labeled_mask].detach(),
+                                    target_var[labeled_mask].detach()
+                                )
+
+                    # Aplica perda de alinhamento, se já houver protótipos
+                    if self.prototype_module.has_prototypes():
+                        proto_loss = self.prototype_module.prototype_alignment_loss(
+                            features_proto, target_var
+                        )
+                        proto_weight = getattr(self, "lambda_transfer", 1.0)
+                        loss = loss + proto_weight * proto_loss
+
                 optimizer.zero_grad()
                 loss.backward()
 
@@ -382,7 +415,7 @@ class LocalUpdate(object):
                         if self.fa_module.mentor_feature_stats is not None:
                             # Compute FA loss
                             loss_fa = self.fa_module.kl_divergence_loss(features, self.fa_module.mentor_feature_stats)
-                            # Add to total loss
+                            # Add to total loss (não afeta grad desta backward)
                             loss = loss + self.lambda_transfer * loss_fa
 
                 # KNOWLEDGE DISTILLATION LOSS
@@ -400,17 +433,17 @@ class LocalUpdate(object):
                         student_logits = logit1
                         
                         # Only apply KD to labeled samples
-                        labeled_mask = target_var.data.ne(-1)
+                        labeled_mask_kd = target_var.data.ne(-1)
                         
-                        if labeled_mask.sum() > 0:
+                        if labeled_mask_kd.sum() > 0:
                             # Compute KD loss for labeled samples
                             kd_loss_val, _, _ = self.kd_module.kd_loss(
-                                student_logits[labeled_mask],
-                                teacher_logits[labeled_mask],
-                                target_var[labeled_mask]
+                                student_logits[labeled_mask_kd],
+                                teacher_logits[labeled_mask_kd],
+                                target_var[labeled_mask_kd]
                             )
                             
-                            # Add to total loss
+                            # Add to total loss (idem FA)
                             loss = loss + self.kd_weight * kd_loss_val
 
                 optimizer.step()
@@ -619,6 +652,3 @@ class LocalUpdate_fedmatch(object):#local
                 batch_loss.append(loss.item())
             epoch_loss.append(sum(batch_loss)/len(batch_loss))
         return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
-
-
-
